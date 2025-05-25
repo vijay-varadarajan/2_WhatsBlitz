@@ -1,0 +1,3 @@
+phoneNumber,name,message
+917358527979,Alice,Hello {{name}}, your order is ready!
+7358527979,Bob,Hello {{name}}, your order is ready!

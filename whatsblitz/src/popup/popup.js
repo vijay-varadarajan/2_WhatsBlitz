@@ -1,4 +1,12 @@
-import { parseFile } from '../parser.js';
+function parseFile(file, callback) {
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: true,
+    complete: function(results) {
+      callback(results.data);
+    }
+  });
+}
 
 const fileInput = document.getElementById('fileInput');
 const startBtn = document.getElementById('startBtn');
