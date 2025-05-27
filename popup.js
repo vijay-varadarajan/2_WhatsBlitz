@@ -11,6 +11,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const statusMessage = document.getElementById('statusMessage');
   
   let contacts = [];
+  let columnMapping = {
+    number: ['phoneNumber', 'phone_number', 'phone', 'number', 'PhoneNumber', 'Phone_Number', 'Phone', 'Number'],
+    name: ['name', 'Name', 'firstName', 'first_name', 'FirstName', 'First_Name'],
+    message: ['message', 'Message', 'text', 'Text']
+  };
   
   // Drag and drop handlers
   uploadArea.addEventListener('dragover', (e) => {
@@ -50,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updatePreview();
     updateButtons();
     hideStatus();
+    fileInput.value = ''; // Clear file input
   });
   
   // Start button
@@ -85,6 +91,15 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // File handling
   function handleFile(file) {
+    // Validate file type
+    const validTypes = ['.csv', '.xlsx'];
+    const fileExt = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+    
+    if (!validTypes.includes(fileExt)) {
+      showStatus('Please upload a CSV or Excel file', 'error');
+      return;
+    }
+    
     const reader = new FileReader();
     
     reader.onload = (e) => {
@@ -104,15 +119,16 @@ document.addEventListener('DOMContentLoaded', () => {
             // Log the first row to help debug column names
             console.log('First row of CSV:', results.data[0]);
             
+            // Detect column mapping from headers
+            detectColumnMapping(results.data[0]);
+            
             // Validate and process contacts
             contacts = results.data
               .map(row => {
-                // Try all possible variations of column names
-                const number = row.phoneNumber || row.phone_number || row.phone || row.number || 
-                             row.PhoneNumber || row.Phone_Number || row.Phone || row.Number;
-                const name = row.name || row.Name || row.firstName || row.first_name || 
-                           row.FirstName || row.First_Name;
-                const message = row.message || row.Message || row.text || row.Text;
+                // Extract values using detected column mapping
+                const number = findColumnValue(row, columnMapping.number);
+                const name = findColumnValue(row, columnMapping.name);
+                const message = findColumnValue(row, columnMapping.message);
                 
                 // Log the extracted values for debugging
                 console.log('Extracted values:', { number, name, message });
@@ -128,6 +144,16 @@ document.addEventListener('DOMContentLoaded', () => {
                   showStatus('Missing message in some rows', 'error');
                   return false;
                 }
+                
+                // Validate template placeholders
+                const placeholders = extractPlaceholders(contact.message);
+                const missingPlaceholders = placeholders.filter(p => !contact[p]);
+                
+                if (missingPlaceholders.length > 0) {
+                  showStatus(`Missing values for placeholders: ${missingPlaceholders.join(', ')}`, 'error');
+                  return false;
+                }
+                
                 return true;
               });
             
@@ -153,6 +179,49 @@ document.addEventListener('DOMContentLoaded', () => {
     reader.readAsText(file);
   }
   
+  // Helper function to find column value using mapping
+  function findColumnValue(row, possibleNames) {
+    for (const name of possibleNames) {
+      if (row[name] !== undefined) {
+        return row[name];
+      }
+    }
+    return null;
+  }
+  
+  // Helper function to detect column mapping from headers
+  function detectColumnMapping(firstRow) {
+    const headers = Object.keys(firstRow);
+    
+    // Try to match headers with known patterns
+    headers.forEach(header => {
+      const lowerHeader = header.toLowerCase();
+      
+      if (columnMapping.number.some(n => n.toLowerCase() === lowerHeader)) {
+        columnMapping.number = [header, ...columnMapping.number];
+      }
+      if (columnMapping.name.some(n => n.toLowerCase() === lowerHeader)) {
+        columnMapping.name = [header, ...columnMapping.name];
+      }
+      if (columnMapping.message.some(n => n.toLowerCase() === lowerHeader)) {
+        columnMapping.message = [header, ...columnMapping.message];
+      }
+    });
+  }
+  
+  // Helper function to extract placeholders from message
+  function extractPlaceholders(message) {
+    const matches = message.match(/\{([^}]+)\}/g) || [];
+    return matches.map(m => m.slice(1, -1));
+  }
+  
+  // Helper function to process message with placeholders
+  function processMessage(message, contact) {
+    return message.replace(/\{([^}]+)\}/g, (match, key) => {
+      return contact[key] || match;
+    });
+  }
+  
   // Update preview table
   function updatePreview() {
     if (!contacts.length) {
@@ -165,13 +234,16 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Show first 5 contacts
     const previewContacts = contacts.slice(0, 5);
-    previewTableBody.innerHTML = previewContacts.map(contact => `
-      <tr>
-        <td>${contact.number}</td>
-        <td>${contact.name || '-'}</td>
-        <td>${contact.message.length > 50 ? contact.message.substring(0, 50) + '...' : contact.message}</td>
-      </tr>
-    `).join('');
+    previewTableBody.innerHTML = previewContacts.map(contact => {
+      const processedMessage = processMessage(contact.message, contact);
+      return `
+        <tr>
+          <td>${contact.number}</td>
+          <td>${contact.name || '-'}</td>
+          <td>${processedMessage.length > 50 ? processedMessage.substring(0, 50) + '...' : processedMessage}</td>
+        </tr>
+      `;
+    }).join('');
     
     if (contacts.length > 5) {
       previewTableBody.innerHTML += `
@@ -209,4 +281,4 @@ document.addEventListener('DOMContentLoaded', () => {
       startBtn.disabled = true;
     }
   });
-});
+}); 

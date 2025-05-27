@@ -1,6 +1,53 @@
 // src/background.js
 console.log('WhatsBlitz background script loaded');
 
+// Keep track of injected tabs
+const injectedTabs = new Set();
+
+// Helper function to inject content script
+async function injectContentScript(tabId) {
+  try {
+    console.log('Injecting content script into tab:', tabId);
+    await chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      files: ['content.js']
+    });
+    injectedTabs.add(tabId);
+    
+    // Wait for script to initialize
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    return true;
+  } catch (error) {
+    console.error('Error injecting content script:', error);
+    return false;
+  }
+}
+
+// Helper function to send message with retry
+async function sendMessageWithRetry(tabId, message, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await chrome.tabs.sendMessage(tabId, message);
+    } catch (error) {
+      console.error(`Attempt ${i + 1} failed:`, error);
+      
+      if (error.message.includes('Extension context invalidated')) {
+        throw error; // Don't retry if extension context is invalid
+      }
+      
+      if (i < maxRetries - 1) {
+        // Try to reinject the content script
+        const injected = await injectContentScript(tabId);
+        if (!injected) {
+          throw new Error('Failed to reinject content script');
+        }
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+  }
+  throw new Error('Failed to send message after retries');
+}
+
 // Listen for popup commands
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   console.log('Background received message:', msg.command);
@@ -23,13 +70,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       
       try {
         // Ensure content script is injected
-        await chrome.scripting.executeScript({
-          target: { tabId: targetTab.id },
-          files: ['src/content.js']
-        });
+        if (!injectedTabs.has(targetTab.id)) {
+          const injected = await injectContentScript(targetTab.id);
+          if (!injected) {
+            throw new Error('Failed to inject content script');
+          }
+        }
         
-        // Send data to content script
-        const response = await chrome.tabs.sendMessage(targetTab.id, {
+        // Send data to content script with retry
+        const response = await sendMessageWithRetry(targetTab.id, {
           command: 'processList',
           list: msg.list
         });
@@ -40,8 +89,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (error) {
         console.error('Error in messaging process:', error);
         
-        if (error.message.includes('Could not establish connection')) {
-          sendResponse({ error: 'Failed to communicate with WhatsApp Web. Please refresh the page and try again.' });
+        if (error.message.includes('Extension context invalidated')) {
+          sendResponse({ error: 'Extension context invalidated. Please reload the extension and try again.' });
         } else {
           sendResponse({ error: 'An unexpected error occurred: ' + error.message });
         }
@@ -67,17 +116,16 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       if (result.whatsblitzActive && result.whatsblitzQueue) {
         console.log('Active queue detected, ensuring content script is injected');
         
-        // Inject content script
-        await chrome.scripting.executeScript({
-          target: { tabId: tabId },
-          files: ['src/content.js']
-        });
+        // Inject content script if not already injected
+        if (!injectedTabs.has(tabId)) {
+          const injected = await injectContentScript(tabId);
+          if (!injected) {
+            throw new Error('Failed to inject content script');
+          }
+        }
         
-        // Wait a bit for the script to initialize
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // Resume the queue
-        await chrome.tabs.sendMessage(tabId, {
+        // Resume the queue with retry
+        await sendMessageWithRetry(tabId, {
           command: 'processList',
           list: result.whatsblitzQueue
         });
@@ -90,6 +138,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
 // Handle tab removal
 chrome.tabs.onRemoved.addListener(async (tabId) => {
+  // Remove from injected tabs set
+  injectedTabs.delete(tabId);
+  
   try {
     // Check if this was a WhatsApp Web tab with an active queue
     const result = await chrome.storage.local.get(['whatsblitzActive', 'whatsblitzQueue']);
