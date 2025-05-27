@@ -1,0 +1,5 @@
+body { font-family: sans-serif; padding: 10px; width: 200px; background-color: aquamarine; 
+  color: #333; }
+h1 { font-size: 1.2em; margin-bottom: 8px; }
+#progress { margin-top: 10px; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }

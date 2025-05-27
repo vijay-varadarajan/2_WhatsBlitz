@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "WhatsBlitz",
+  "version": "1.0.0",
+  "description": "Automate personalized WhatsApp messages from Excel/CSV.",
+  "permissions": [
+    "scripting",
+    "tabs",
+    "storage",
+    "activeTab",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "*://web.whatsapp.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://web.whatsapp.com/*"],
+      "js": ["content.js"]
+    }
+  ]
+}
